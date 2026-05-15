@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Weather App</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 1rem; }
+    input, select { padding: 8px; font-size: 1rem; margin: 4px; }
+    button { padding: 8px 14px; margin: 4px; cursor: pointer; }
+    .err { color: red; margin-top: 10px; }
+    .weatherBox { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+    .forecastRow { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 1rem; }
+    .forecastBox { border: 1px solid #ccc; border-radius: 8px; padding: 10px; text-align: center; min-width: 110px; }
+    hr { margin: 2rem 0; border: none; border-top: 2px solid #eee; }
+    h2 { margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    .del-btn { background: #e74c3c; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+    .edit-btn { background: #3498db; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+    .export-row { display: flex; gap: 10px; margin-top: 1rem; }
+    .export-btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; color: white; }
+    .json-btn { background: #e67e22; }
+    .csv-btn { background: #27ae60; }
+    .xml-btn { background: #8e44ad; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+    .modal.open { display: flex; }
+    .modal-box { background: white; padding: 2rem; border-radius: 10px; min-width: 350px; }
+    .modal-box input { width: 100%; margin-bottom: 10px; }
+    .section { border: 1px solid #eee; border-radius: 10px; padding: 1.5rem; margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+
+  <h1>🌤 Weather App</h1>
+  <p><strong>Built by Prissha</strong></p>
+  <p style="font-size:0.85rem; color:#555;">
+    <strong>PM Accelerator</strong> — Product Manager Accelerator is a professional community
+    that helps aspiring PMs accelerate their careers through mentorship and real-world experience.
+    <a href="https://www.linkedin.com/school/product-manager-accelerator/" target="_blank">LinkedIn ↗</a>
+  </p>
+
+  <!-- SECTION 1: Current Weather -->
+  <div class="section">
+    <h2>🔍 Current Weather Search</h2>
+    <input type="text" id="cityInput" placeholder="e.g. London, Tokyo, New York, 08902..." style="width:300px;" />
+    <p style="font-size:0.8rem; color:#888; margin-top:6px;">For US cities use abbreviation: "Paris, TX" not "Paris, Texas"</p>
+    <button onclick="getWeather()">Search</button>
+    <button onclick="gpsWeather()">📍 My Location</button>
+    <div id="errMsg" class="err"></div>
+    <div id="result"></div>
+  </div>
+
+  <!-- SECTION 2: Save Weather Search with Date Range -->
+  <div class="section">
+    <h2>💾 Save Weather Search</h2>
+    <p style="font-size:0.85rem; color:#555;">Enter a location and date range to save weather data to the database.</p>
+    <div>
+      <input type="text" id="saveLocation" placeholder="Location e.g. New York, NY" style="width:250px;" />
+      <input type="date" id="saveFrom" />
+      <input type="date" id="saveTo" />
+      <button onclick="saveWeather()">Save to Database</button>
+    </div>
+    <div id="saveMsg" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- SECTION 3: View Saved Records -->
+  <div class="section">
+    <h2>📋 Saved Weather Records</h2>
+    <button onclick="loadRecords()">🔄 Refresh Records</button>
+    <div id="recordsTable"></div>
+
+    <!-- Export buttons -->
+    <div class="export-row">
+      <button class="export-btn json-btn" onclick="exportData('json')">⬇ Export JSON</button>
+      <button class="export-btn csv-btn" onclick="exportData('csv')">⬇ Export CSV</button>
+      <button class="export-btn xml-btn" onclick="exportData('xml')">⬇ Export XML</button>
+    </div>
+  </div>
+
+  <!-- UPDATE MODAL -->
+  <div class="modal" id="editModal">
+    <div class="modal-box">
+      <h3>✏️ Update Record</h3>
+      <input type="hidden" id="editId" />
+      <label>Location</label>
+      <input type="text" id="editLocation" placeholder="New location" />
+      <label>Date From</label>
+      <input type="date" id="editFrom" />
+      <label>Date To</label>
+      <input type="date" id="editTo" />
+      <div style="margin-top:1rem; display:flex; gap:10px;">
+        <button onclick="submitUpdate()" style="background:#27ae60; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer;">Save Changes</button>
+        <button onclick="closeModal()" style="background:#ccc; border:none; padding:8px 16px; border-radius:6px; cursor:pointer;">Cancel</button>
+      </div>
+      <div id="editMsg" style="margin-top:8px; color:red;"></div>
+    </div>
+  </div>
+
+  <script>
+    const key = "c68cbb16ea96f5e1103aa4088ca1932a"
+    const API = "http://localhost:3000/api"
+
+    // ── SECTION 1: Current Weather ──────────────────────────
+
+    async function getWeather() {
+      let city = document.getElementById("cityInput").value.trim()
+      document.getElementById("errMsg").textContent = ""
+      document.getElementById("result").innerHTML = ""
+
+      if (!city) {
+        document.getElementById("errMsg").textContent = "type a city first"
+        return
+      }
+
+      document.getElementById("result").innerHTML = "loading..."
+
+      let searchCity = city
+      const usCodes = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"]
+      if (city.includes(",")) {
+        let afterComma = city.split(",")[1].trim().toUpperCase()
+        if (usCodes.includes(afterComma)) searchCity = city + ",US"
+      }
+
+      let geo = await fetch(`https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(searchCity)}&limit=5&appid=${key}`)
+      let geoData = await geo.json()
+
+      if (!geoData || geoData.length === 0) {
+        document.getElementById("errMsg").textContent = "cant find that place, try being more specific"
+        document.getElementById("result").innerHTML = ""
+        return
+      }
+
+      let spot
+      if (city.includes(",")) {
+        spot = geoData[0]
+      } else {
+        spot = geoData[0]
+        for (let i = 1; i < geoData.length; i++) {
+          if ((geoData[i].population || 0) > (spot.population || 0)) spot = geoData[i]
+        }
+      }
+
+      let placeName = spot.name + (spot.state ? ", " + spot.state : "") + ", " + spot.country
+
+      let wRes = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${spot.lat}&lon=${spot.lon}&appid=${key}&units=imperial`)
+      if (!wRes.ok) {
+        document.getElementById("errMsg").textContent = "weather API failed, try again"
+        document.getElementById("result").innerHTML = ""
+        return
+      }
+      let w = await wRes.json()
+
+      let fcRes = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${spot.lat}&lon=${spot.lon}&appid=${key}&units=imperial`)
+      let fcData = await fcRes.json()
+
+      let byDay = {}
+      for (let item of fcData.list) {
+        let d = item.dt_txt.split(" ")[0]
+        let t = item.dt_txt.split(" ")[1]
+        if (!byDay[d]) byDay[d] = item
+        if (t === "12:00:00") byDay[d] = item
+      }
+      let days = Object.values(byDay).slice(0, 5)
+
+      let fcHTML = ""
+      for (let i = 0; i < days.length; i++) {
+        let d = days[i]
+        let label = i === 0 ? "Today" : new Date(d.dt * 1000).toLocaleDateString("en-US", { weekday: "short" })
+        fcHTML += `
+          <div class="forecastBox">
+            <strong>${label}</strong><br/>
+            <img src="https://openweathermap.org/img/wn/${d.weather[0].icon}@2x.png" width="50"/><br/>
+            ${d.weather[0].description}<br/>
+            <strong>${Math.round(d.main.temp_max)}°F</strong> / ${Math.round(d.main.temp_min)}°F<br/>
+            💧 ${Math.round((d.pop || 0) * 100)}%
+          </div>`
+      }
+
+      document.getElementById("result").innerHTML = `
+        <div class="weatherBox">
+          <h3>📍 ${placeName}</h3>
+          <img src="https://openweathermap.org/img/wn/${w.weather[0].icon}@2x.png"/>
+          <p><strong>${Math.round(w.main.temp)}°F</strong> — ${w.weather[0].description}</p>
+          <p>feels like ${Math.round(w.main.feels_like)}°F</p>
+          <p>humidity: ${w.main.humidity}%</p>
+          <p>wind: ${Math.round(w.wind.speed)} mph</p>
+          <p>visibility: ${(w.visibility / 1609).toFixed(1)} mi</p>
+          <p>pressure: ${w.main.pressure} hPa</p>
+          <p>sunrise: ${new Date(w.sys.sunrise * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+          <p>sunset: ${new Date(w.sys.sunset * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+        </div>
+        <h3 style="margin-top:1.5rem;">5-Day Forecast</h3>
+        <div class="forecastRow">${fcHTML}</div>
+      `
+    }
+
+    async function gpsWeather() {
+      document.getElementById("errMsg").textContent = ""
+      document.getElementById("result").innerHTML = "getting your location..."
+
+      if (!navigator.geolocation) {
+        document.getElementById("errMsg").textContent = "browser doesnt support GPS"
+        document.getElementById("result").innerHTML = ""
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(async function(pos) {
+        let lat = pos.coords.latitude
+        let lon = pos.coords.longitude
+
+        let wRes = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${key}&units=imperial`)
+        if (!wRes.ok) {
+          document.getElementById("errMsg").textContent = "couldnt get weather for your location"
+          document.getElementById("result").innerHTML = ""
+          return
+        }
+        let w = await wRes.json()
+
+        let fcRes = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${key}&units=imperial`)
+        let fcData = await fcRes.json()
+
+        let byDay = {}
+        for (let item of fcData.list) {
+          let d = item.dt_txt.split(" ")[0]
+          let t = item.dt_txt.split(" ")[1]
+          if (!byDay[d]) byDay[d] = item
+          if (t === "12:00:00") byDay[d] = item
+        }
+        let days = Object.values(byDay).slice(0, 5)
+
+        let fcHTML = ""
+        for (let i = 0; i < days.length; i++) {
+          let d = days[i]
+          let label = i === 0 ? "Today" : new Date(d.dt * 1000).toLocaleDateString("en-US", { weekday: "short" })
+          fcHTML += `
+            <div class="forecastBox">
+              <strong>${label}</strong><br/>
+              <img src="https://openweathermap.org/img/wn/${d.weather[0].icon}@2x.png" width="50"/><br/>
+              ${d.weather[0].description}<br/>
+              <strong>${Math.round(d.main.temp_max)}°F</strong> / ${Math.round(d.main.temp_min)}°F<br/>
+              💧 ${Math.round((d.pop || 0) * 100)}%
+            </div>`
+        }
+
+        document.getElementById("result").innerHTML = `
+          <div class="weatherBox">
+            <h3>📍 ${w.name}, ${w.sys.country}</h3>
+            <img src="https://openweathermap.org/img/wn/${w.weather[0].icon}@2x.png"/>
+            <p><strong>${Math.round(w.main.temp)}°F</strong> — ${w.weather[0].description}</p>
+            <p>feels like ${Math.round(w.main.feels_like)}°F</p>
+            <p>humidity: ${w.main.humidity}%</p>
+            <p>wind: ${Math.round(w.wind.speed)} mph</p>
+            <p>visibility: ${(w.visibility / 1609).toFixed(1)} mi</p>
+            <p>pressure: ${w.main.pressure} hPa</p>
+            <p>sunrise: ${new Date(w.sys.sunrise * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+            <p>sunset: ${new Date(w.sys.sunset * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+          </div>
+          <h3 style="margin-top:1.5rem;">5-Day Forecast</h3>
+          <div class="forecastRow">${fcHTML}</div>
+        `
+      }, function(e) {
+        document.getElementById("result").innerHTML = ""
+        if (e.code == 1) document.getElementById("errMsg").textContent = "blocked location access"
+        else if (e.code == 2) document.getElementById("errMsg").textContent = "gps not working"
+        else document.getElementById("errMsg").textContent = "location timed out"
+      })
+    }
+
+    // ── SECTION 2: Save to Database ─────────────────────────
+
+    async function saveWeather() {
+      let location = document.getElementById("saveLocation").value.trim()
+      let date_from = document.getElementById("saveFrom").value
+      let date_to = document.getElementById("saveTo").value
+      let msg = document.getElementById("saveMsg")
+
+      if (!location || !date_from || !date_to) {
+        msg.style.color = "red"
+        msg.textContent = "please fill in all fields"
+        return
+      }
+
+      let res = await fetch(`${API}/weather`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location, date_from, date_to })
+      })
+      let data = await res.json()
+
+      if (!res.ok) {
+        msg.style.color = "red"
+        msg.textContent = data.error
+        return
+      }
+
+      msg.style.color = "green"
+      msg.textContent = `saved! ${data.location} — ${data.temp_min}°F to ${data.temp_max}°F, ${data.description}`
+      loadRecords()
+    }
+
+    // ── SECTION 3: Read Records ──────────────────────────────
+
+    async function loadRecords() {
+      let res = await fetch(`${API}/weather`)
+      let rows = await res.json()
+      let el = document.getElementById("recordsTable")
+
+      if (!rows.length) {
+        el.innerHTML = "<p style='color:#888;'>no records yet, save a search above</p>"
+        return
+      }
+
+      let html = `
+        <table>
+          <tr>
+            <th>ID</th>
+            <th>Location</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Min °F</th>
+            <th>Max °F</th>
+            <th>Description</th>
+            <th>Saved At</th>
+            <th>Actions</th>
+          </tr>`
+
+      for (let r of rows) {
+        html += `
+          <tr>
+            <td>${r.id}</td>
+            <td>${r.location}</td>
+            <td>${r.date_from}</td>
+            <td>${r.date_to}</td>
+            <td>${Math.round(r.temp_min)}°F</td>
+            <td>${Math.round(r.temp_max)}°F</td>
+            <td>${r.description}</td>
+            <td>${r.created_at}</td>
+            <td>
+              <button class="edit-btn" onclick="openModal(${r.id}, '${r.location}', '${r.date_from}', '${r.date_to}')">✏️ Edit</button>
+              <button class="del-btn" onclick="deleteRecord(${r.id})">🗑 Delete</button>
+            </td>
+          </tr>`
+      }
+      html += "</table>"
+      el.innerHTML = html
+    }
+
+    // ── UPDATE ───────────────────────────────────────────────
+
+    function openModal(id, location, dateFrom, dateTo) {
+      document.getElementById("editId").value = id
+      document.getElementById("editLocation").value = location
+      document.getElementById("editFrom").value = dateFrom
+      document.getElementById("editTo").value = dateTo
+      document.getElementById("editMsg").textContent = ""
+      document.getElementById("editModal").classList.add("open")
+    }
+
+    function closeModal() {
+      document.getElementById("editModal").classList.remove("open")
+    }
+
+    async function submitUpdate() {
+      let id = document.getElementById("editId").value
+      let location = document.getElementById("editLocation").value.trim()
+      let date_from = document.getElementById("editFrom").value
+      let date_to = document.getElementById("editTo").value
+
+      let res = await fetch(`${API}/weather/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location, date_from, date_to })
+      })
+      let data = await res.json()
+
+      if (!res.ok) {
+        document.getElementById("editMsg").textContent = data.error
+        return
+      }
+
+      closeModal()
+      loadRecords()
+    }
+
+    // ── DELETE ───────────────────────────────────────────────
+
+    async function deleteRecord(id) {
+      if (!confirm("delete this record?")) return
+      let res = await fetch(`${API}/weather/${id}`, { method: "DELETE" })
+      if (res.ok) loadRecords()
+    }
+
+    // ── EXPORT ───────────────────────────────────────────────
+
+    function exportData(format) {
+      window.open(`${API}/export/${format}`, "_blank")
+    }
+
+    // load records on page load
+    loadRecords()
+  </script>
+</body>
+</html>
